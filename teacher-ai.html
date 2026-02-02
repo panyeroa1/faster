@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Teacher Generator - Succes Class</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .animate-slide-up {
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="h-16 px-6 bg-white border-b border-gray-200 flex justify-between items-center shadow-sm z-30">
+        <div class="flex items-center gap-3">
+            <a href="index.html" title="Back to Dashboard" class="text-gray-400 hover:text-blue-500 transition-colors">
+                <i class="fa-solid fa-arrow-left"></i>
+            </a>
+            <h1 class="font-bold text-gray-900">AI Teacher Generator</h1>
+        </div>
+        <div class="flex items-center gap-3">
+            <div id="status-badge"
+                class="hidden flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-xs font-bold animate-pulse">
+                <i class="fa-solid fa-brain"></i> TEACHING...
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 p-6 max-w-2xl mx-auto w-full">
+        <div class="glass border border-gray-100 rounded-3xl p-8 shadow-xl animate-slide-up">
+            <div class="mb-8">
+                <h2 class="text-2xl font-black text-gray-900 mb-2">Generate a Lesson</h2>
+                <p class="text-sm text-gray-500">Enter a topic and the AI Teacher will start explaining it
+                    sentence-by-sentence to your class.</p>
+            </div>
+
+            <div class="space-y-6">
+                <div>
+                    <label class="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Subject /
+                        Topic</label>
+                    <textarea id="topic-input" rows="3"
+                        class="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-gray-900 outline-none focus:border-purple-500 transition-all placeholder:text-gray-300 resize-none"
+                        placeholder="e.g. The importance of the Roman Empire, or How photosynthesis works..."></textarea>
+                </div>
+
+                <div class="flex gap-4">
+                    <button id="start-btn" onclick="Generator.start()"
+                        class="flex-1 bg-gradient-to-br from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white font-bold py-4 rounded-2xl shadow-lg shadow-purple-500/20 transition-all active:scale-95 flex items-center justify-center gap-3">
+                        <i class="fa-solid fa-magic"></i> START LESSON
+                    </button>
+                    <button id="stop-btn" onclick="Generator.stop()"
+                        class="hidden bg-red-100 hover:bg-red-200 text-red-600 font-bold px-8 rounded-2xl transition-all active:scale-95">
+                        STOP
+                    </button>
+                </div>
+            </div>
+
+            <div id="log" class="mt-8 space-y-3 overflow-y-auto max-h-64 custom-scrollbar">
+                <!-- Log entries -->
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, push } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const CONFIG = {
+            API_KEY: "sk-RPKYynytRIODIzGGm0GYgEF7RMgQqlee9upYDni5Yoi9gtLe",
+            MOONSHOT_URL: "https://api.moonshot.ai/v1/chat/completions",
+            FIREBASE: {
+                apiKey: "AIzaSyC93B2GgE3HzaWl5gW_mRroobQybaZNFJs",
+                authDomain: "macx-5feca.firebaseapp.com",
+                databaseURL: "https://macx-5feca-default-rtdb.asia-southeast1.firebasedatabase.app",
+                projectId: "macx-5feca",
+                storageBucket: "macx-5feca.appspot.com"
+            }
+        };
+
+        const Generator = {
+            isActive: false,
+            queue: [],
+            interval: null,
+            db: null,
+            session: JSON.parse(localStorage.getItem('orbit_session') || '{}'),
+
+            init() {
+                const app = initializeApp(CONFIG.FIREBASE);
+                this.db = getDatabase(app);
+                if (!this.session.room) {
+                    alert("No active session found. Please login via index.html first.");
+                    window.location.href = 'index.html';
+                    return;
+                }
+                window.Generator = this;
+            },
+
+            async start() {
+                const input = document.getElementById('topic-input');
+                const topic = input.value.trim();
+                if (!topic) return;
+
+                this.isActive = true;
+                this.updateUI(true);
+                this.log("Starting generation for: " + topic, "info");
+
+                try {
+                    const response = await this.callAI(topic);
+                    const ssmlBlock = response.choices[0].message.content;
+
+                    // Split into sentences using a simple regex that respects SSML tags
+                    // We look for patterns like . or ! or ? that are NOT followed by a tag closing but might be followed by whitespace
+                    // A better way is to split by broad sentence boundaries and re-wrap
+                    const sentences = this.splitSSML(ssmlBlock);
+
+                    this.log(`Generated ${sentences.length} sentences. Starting broadcast...`, "success");
+                    this.queue = sentences;
+                    this.runLoop();
+
+                } catch (e) {
+                    this.log("Error: " + e.message, "error");
+                    this.stop();
+                }
+            },
+
+            stop() {
+                this.isActive = false;
+                if (this.interval) clearInterval(this.interval);
+                this.queue = [];
+                this.updateUI(false);
+                this.log("Lesson stopped.", "warning");
+            },
+
+            async callAI(topic) {
+                const systemPrompt = `You are an AI Teacher Topic Generator.
+
+CORE IDENTITY
+- You are a real, experienced human teacher speaking naturally.
+- You generate lesson topics AND explain them as if speaking live in class.
+- Your output is designed to be spoken aloud via Cartesia TTS.
+- You DO NOT translate. You DO NOT switch languages.
+- You ALWAYS use the teacher’s selected language as the ONLY output language.
+
+LANGUAGE LOCK (CRITICAL)
+- The variable TEACHER_LANGUAGE defines your language.
+- Every word, filler, hesitation, and explanation MUST be in ${this.session.lang || 'English'}.
+- If TEACHER_LANGUAGE = Dutch (nl-BE), you speak natural Belgian Dutch.
+- If TEACHER_LANGUAGE = English, you speak natural conversational English.
+- Never mix languages unless that language itself is mixed.
+
+HUMAN DELIVERY RULES
+You must sound like a real human teacher:
+- Occasionally repeat a word once (e.g., “so, so this part is important”).
+- Use light verbal fillers appropriate to the language (e.g., “uh”, “um”, “euh”, “ah”).
+- Vary sentence length: some short, some flowing.
+- Add natural pacing and thinking pauses.
+- Never sound scripted or robotic.
+
+CARTESIA SSML RULES (STRICT)
+- Output MUST be valid SSML only.
+- Use <break time="...ms"/> for pauses (300–900ms).
+- Do NOT describe emotions in text — express them through pacing and delivery.
+- Do NOT include explanations about SSML.
+- Do NOT include markdown, code fences, or metadata.
+- Wrap everything in a single <speak> tag.
+
+CONTENT RULES
+- Generate an engaging lesson topic relevant to: ${topic}
+- Explain the topic clearly, progressively, and confidently.
+- Assume students are listening live.
+- You may briefly simulate interaction.
+- Do NOT summarize at the end unless explicitly asked.
+
+ABSOLUTE PROHIBITIONS
+- No translation
+- No emojis
+- No bullet lists
+- No meta commentary
+- No language switching
+- No references to being an AI`;
+
+                const res = await fetch(CONFIG.MOONSHOT_URL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${CONFIG.API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: "kimi-k2-0711-preview",
+                        messages: [
+                            { role: "system", content: systemPrompt },
+                            { role: "user", content: `Please explain this topic: ${topic}` }
+                        ],
+                        temperature: 0.7
+                    })
+                });
+
+                if (!res.ok) throw new Error("Moonshot API failed: " + res.statusText);
+                return res.json();
+            },
+
+            splitSSML(ssml) {
+                // Remove outer <speak> tags if present to split content
+                let content = ssml.replace(/<\/?speak>/g, '').trim();
+
+                // Split by common sentence endings, but try to keep <break/> tags attached to previous sentence
+                // We'll use a regex that matches sentence endings followed by whitespace or end of string, 
+                // but doesn't split if it's part of a tag (very basic heuristic)
+                const segments = content.split(/(?<=[.!?])\s+(?![^<]*>)/g);
+
+                return segments.filter(s => s.trim().length > 0).map(s => {
+                    // Wrap back in speak tag
+                    return `<speak>${s.trim()}</speak>`;
+                });
+            },
+
+            runLoop() {
+                if (this.interval) clearInterval(this.interval);
+
+                this.interval = setInterval(() => {
+                    if (!this.isActive || this.queue.length === 0) {
+                        this.stop();
+                        return;
+                    }
+
+                    const sentence = this.queue.shift();
+                    this.broadcast(sentence);
+                }, 3000);
+            },
+
+            broadcast(ssml) {
+                // Strip tags for display text
+                const text = ssml.replace(/<[^>]*>/g, '').trim();
+
+                push(ref(this.db, `chats/${this.session.room}/messages`), {
+                    text: text,
+                    ssml: ssml, // Send the full SSML for TTS
+                    lang: this.session.lang,
+                    senderName: "AI Teacher",
+                    senderId: "ai-generator",
+                    timestamp: Date.now()
+                });
+
+                this.log(`Sent: ${text.substring(0, 50)}...`, "info");
+            },
+
+            updateUI(active) {
+                document.getElementById('start-btn').disabled = active;
+                document.getElementById('start-btn').classList.toggle('opacity-50', active);
+                document.getElementById('stop-btn').classList.toggle('hidden', !active);
+                document.getElementById('status-badge').classList.toggle('hidden', !active);
+                document.getElementById('topic-input').disabled = active;
+            },
+
+            log(msg, type) {
+                const div = document.createElement('div');
+                div.className = `p-3 rounded-xl text-xs font-medium animate-slide-up ${type === 'success' ? 'bg-green-50 text-green-700' :
+                    type === 'error' ? 'bg-red-50 text-red-700' :
+                        type === 'warning' ? 'bg-yellow-50 text-yellow-700' :
+                            'bg-blue-50 text-blue-700'
+                    }`;
+                div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                const container = document.getElementById('log');
+                container.prepend(div);
+            }
+        };
+
+        Generator.init();
+    </script>
+</body>
+
+</html>

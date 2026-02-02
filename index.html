@@ -397,13 +397,14 @@
                             class="btn-modern w-12 h-12 rounded-full bg-white border border-gray-200 shadow-sm text-xl flex items-center justify-center hover:bg-gray-50 hover:scale-110">❤️</button>
                     </div>
 
-                    <!-- Right Group: Wand + Hand -->
+                    <!-- Right Group: Speak + Hand -->
                     <div class="flex items-center gap-3">
-                        <!-- Magic Wand AI -->
-                        <a href="teacher-ai.html" title="Open AI Teacher Helper"
-                            class="btn-modern h-12 w-12 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 text-white shadow-lg shadow-purple-500/20 flex items-center justify-center hover:scale-105 active:scale-95 transition-all">
-                            <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
-                        </a>
+                        <!-- Speak Request Button -->
+                        <button id="speak-request-btn" onclick="App.speakManager.requestToSpeak()"
+                            title="Request to Speak"
+                            class="btn-modern h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/20 flex items-center justify-center hover:scale-105 active:scale-95 transition-all">
+                            <i class="fa-solid fa-microphone text-lg"></i>
+                        </button>
 
                         <!-- Ask Question FAB -->
                         <button onclick="App.toggleModal('question')"
@@ -440,6 +441,11 @@
 
                 <!-- Actions -->
                 <div class="flex items-center gap-4">
+                    <!-- Magic Wand AI (Teacher) -->
+                    <a href="teacher-ai.html" title="Open AI Teacher Helper"
+                        class="text-purple-500 hover:text-purple-700 transition-colors text-xl">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    </a>
                     <button onclick="App.toggleModal('history')" title="View History"
                         class="text-gray-400 hover:text-blue-500 transition-colors">
                         <i class="fa-solid fa-clock-rotate-left"></i>
@@ -479,12 +485,21 @@
                     </div>
                 </div>
 
-                <!-- Incoming Questions -->
+                <!-- Incoming Questions & Speak Requests -->
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
                     <div class="px-4 py-3 bg-gray-50/50 border-b border-gray-100 flex justify-between items-center">
-                        <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Student Questions</h3>
-                        <span id="question-count"
-                            class="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">0</span>
+                        <div class="flex gap-4">
+                            <button
+                                onclick="document.getElementById('teacher-questions').classList.remove('hidden'); document.getElementById('teacher-speak-requests').classList.add('hidden');"
+                                class="text-xs font-bold text-gray-500 uppercase tracking-wider hover:text-blue-600 transition-colors">Questions
+                                <span id="question-count"
+                                    class="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full ml-1">0</span></button>
+                            <button
+                                onclick="document.getElementById('teacher-questions').classList.add('hidden'); document.getElementById('teacher-speak-requests').classList.remove('hidden');"
+                                class="text-xs font-bold text-gray-500 uppercase tracking-wider hover:text-blue-600 transition-colors">Speak
+                                Requests <span id="speak-request-count"
+                                    class="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-0.5 rounded-full ml-1">0</span></button>
+                        </div>
                     </div>
                     <div id="teacher-questions"
                         class="flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50 custom-scrollbar">
@@ -492,6 +507,14 @@
                         <div class="text-center py-8 opacity-40">
                             <i class="fa-regular fa-comments text-2xl mb-2 text-gray-400"></i>
                             <p class="text-xs text-gray-500">No questions yet</p>
+                        </div>
+                    </div>
+                    <div id="teacher-speak-requests"
+                        class="hidden flex-1 p-4 overflow-y-auto space-y-3 bg-gray-50 custom-scrollbar">
+                        <!-- Speak Requests injected here -->
+                        <div class="text-center py-8 opacity-40">
+                            <i class="fa-solid fa-microphone-lines text-2xl mb-2 text-gray-400"></i>
+                            <p class="text-xs text-gray-500">No speak requests yet</p>
                         </div>
                     </div>
                 </div>
@@ -595,6 +618,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getDatabase, ref, push, onChildAdded, remove, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
         import { createClient, LiveTranscriptionEvents } from 'https://cdn.jsdelivr.net/npm/@deepgram/sdk@3/+esm';
+        import { SpeakManager } from './speak-logic.js';
 
         // --- CREDENTIALS ---
         const CREDENTIALS = {
@@ -746,6 +770,8 @@
                     isAudioPlaying: false,
                     ttsSpeed: 1.1 // Increased speed for low latency
                 };
+
+                this.speakManager = new SpeakManager(this);
 
                 this.dgClient = null;
                 this.dgSocket = null;
@@ -1089,6 +1115,7 @@
 
             // --- STUDENT LOGIC ---
             initStudent() {
+                this.speakManager.init();
                 document.getElementById('student-name-display').innerText = this.state.name;
                 document.getElementById('student-room-code').innerText = this.state.room;
                 const badge = document.getElementById('student-lang-badge');
@@ -1108,7 +1135,12 @@
 
                     // TTS Queue - ONLY FOR STUDENTS HEARING TEACHER
                     if (this.state.isTTSActive && msg.senderId !== this.state.name) {
-                        this.queueAudio(translated, msg.gender || 'Female');
+                        if (msg.ssml && msg.lang === this.state.lang) {
+                            // If we have SSML and language matches, use it directly
+                            this.queueAudio(msg.ssml, msg.gender || 'Female', { isSSML: true });
+                        } else {
+                            this.queueAudio(translated, msg.gender || 'Female');
+                        }
                     }
                 });
             }
@@ -1146,25 +1178,28 @@
                 }
             }
 
-            queueAudio(text, gender) {
-                this.state.audioQueue.push({ text, gender });
-                if (this.state.isTTSActive) this.processAudioQueue();
+            queueAudio(text, gender, options = {}) {
+                this.state.audioQueue.push({ text, gender, ...options });
+                if (!this.state.isAudioPlaying) this.processAudioQueue();
             }
 
             async processAudioQueue() {
                 if (this.state.isAudioPlaying || this.state.audioQueue.length === 0) return;
-
                 this.state.isAudioPlaying = true;
                 const item = this.state.audioQueue.shift();
+                const voiceId = this.getVoiceIdForLanguage(this.state.lang);
 
                 try {
-                    const lang = this.state.lang;
-
-                    // Get the correct voice ID for the language
-                    const voiceId = this.getVoiceIdForLanguage(lang);
-
-                    // Add emotion tag and speed parameter for low latency
-                    const transcript = `<emotion value="neutral" />${item.text}`;
+                    // Prepare transcript: wrap in speak if isSSML and not already wrapped
+                    let transcript = item.text;
+                    if (item.isSSML) {
+                        if (!transcript.trim().startsWith('<speak')) {
+                            transcript = `<speak>${transcript}</speak>`;
+                        }
+                    } else {
+                        // Standard humanization for text
+                        transcript = `<emotion value="neutral" />${transcript}`;
+                    }
 
                     const res = await fetch("https://api.cartesia.ai/tts/bytes", {
                         method: "POST",
@@ -1198,6 +1233,15 @@
                     } else {
                         console.warn("TTS failed for language:", lang, "using voice:", voiceId);
                         // Fallback to English voice with faster playback
+                        let fallbackTranscript = item.text;
+                        if (item.isSSML) {
+                            if (!fallbackTranscript.trim().startsWith('<speak')) {
+                                fallbackTranscript = `<speak>${fallbackTranscript}</speak>`;
+                            }
+                        } else {
+                            fallbackTranscript = `<emotion value="neutral" />${fallbackTranscript}`;
+                        }
+
                         const fallbackRes = await fetch("https://api.cartesia.ai/tts/bytes", {
                             method: "POST",
                             headers: {
@@ -1207,7 +1251,7 @@
                             },
                             body: JSON.stringify({
                                 "model_id": "sonic-3-latest",
-                                "transcript": `<emotion value="neutral" />${item.text}`,
+                                "transcript": fallbackTranscript,
                                 "voice": { "mode": "id", "id": CREDENTIALS.CARTESIA_VOICES["default"] },
                                 "output_format": {
                                     "container": "wav",
@@ -1270,6 +1314,7 @@
 
             // --- TEACHER LOGIC (DEEPGRAM) ---
             initTeacher() {
+                this.speakManager.init();
                 document.getElementById('teacher-code-display').innerText = this.state.room;
 
                 // Questions Listener
@@ -1336,6 +1381,7 @@
                     try { this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { }
                 }
 
+                this.speakManager.init();
                 this.dgClient = createClient(CREDENTIALS.DEEPGRAM);
                 this.dgSocket = this.dgClient.listen.live({
                     model: "nova-3",
