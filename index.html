@@ -1310,10 +1310,22 @@
                 }
 
                 async processAudioQueue() {
-                    if (this.state.isAudioPlaying || this.state.audioQueue.length === 0) return;
+                    if (this.state.isAudioPlaying) return;
+
+                    // Double check: if audio object exists and isn't paused, we are busy.
+                    if (this.currentAudio && !this.currentAudio.paused && !this.currentAudio.ended) return;
+
+                    if (this.state.audioQueue.length === 0) return;
+
                     this.state.isAudioPlaying = true;
                     const item = this.state.audioQueue.shift();
                     const voiceId = this.getVoiceIdForLanguage(this.state.lang);
+
+                    const cleanup = () => {
+                        this.state.isAudioPlaying = false;
+                        this.currentAudio = null;
+                        this.processAudioQueue();
+                    };
 
                     try {
                         // Prepare transcript: wrap in speak if isSSML and not already wrapped
@@ -1349,16 +1361,13 @@
                         if (res.ok) {
                             const blob = await res.blob();
                             const url = URL.createObjectURL(blob);
-                            const audio = new Audio(url);
-                            audio.playbackRate = this.state.ttsSpeed; // Set speed for low latency
-                            audio.onended = () => {
-                                this.state.isAudioPlaying = false;
-                                this.processAudioQueue();
-                            };
-                            audio.play();
+                            this.currentAudio = new Audio(url);
+                            this.currentAudio.playbackRate = this.state.ttsSpeed;
+                            this.currentAudio.onended = cleanup;
+                            this.currentAudio.play();
                         } else {
-                            console.warn("TTS failed for language:", lang, "using voice:", voiceId);
-                            // Fallback to English voice with faster playback
+                            console.warn("TTS failed for language:", this.state.lang, "using voice:", voiceId);
+                            // Fallback logic
                             let fallbackTranscript = item.text;
                             if (item.isSSML) {
                                 if (!fallbackTranscript.trim().startsWith('<speak')) {
@@ -1390,20 +1399,18 @@
                             if (fallbackRes.ok) {
                                 const fallbackBlob = await fallbackRes.blob();
                                 const fallbackUrl = URL.createObjectURL(fallbackBlob);
-                                const fallbackAudio = new Audio(fallbackUrl);
-                                fallbackAudio.playbackRate = this.state.ttsSpeed; // Faster playback for latency
-                                fallbackAudio.onended = () => {
-                                    this.state.isAudioPlaying = false;
-                                    this.processAudioQueue();
-                                };
-                                fallbackAudio.play();
+                                this.currentAudio = new Audio(fallbackUrl);
+                                this.currentAudio.playbackRate = this.state.ttsSpeed;
+                                this.currentAudio.onended = cleanup;
+                                this.currentAudio.play();
                             } else {
-                                this.state.isAudioPlaying = false;
+                                // Fallback failed too
+                                cleanup();
                             }
                         }
                     } catch (e) {
                         console.error("TTS Error", e);
-                        this.state.isAudioPlaying = false;
+                        cleanup();
                     }
                 }
 
