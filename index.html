@@ -1317,7 +1317,9 @@
 
                     if (this.state.audioQueue.length === 0) return;
 
+                    // Critical: Lock the gate IMMEDIATELY to prevent mic from hearing the generation lag.
                     this.state.isAudioPlaying = true;
+
                     // PEEK at the first item, do not shift yet!
                     const item = this.state.audioQueue[0];
                     const voiceId = this.getVoiceIdForLanguage(this.state.lang);
@@ -1497,6 +1499,8 @@
                 }
 
                 async startDeepgram() {
+                    this.stopDeepgram(); // Safety: Kill any zombies first
+
                     const micConstraints = {
                         audio: {
                             echoCancellation: true,
@@ -1548,8 +1552,14 @@
                 }
 
                 stopDeepgram() {
-                    if (this.mediaRecorder) this.mediaRecorder.stop();
-                    if (this.dgSocket) this.dgSocket.finish();
+                    if (this.mediaRecorder) {
+                        this.mediaRecorder.ondataavailable = null; // Prevent leaks
+                        this.mediaRecorder.stop();
+                    }
+                    if (this.dgSocket) {
+                        this.dgSocket.finish();
+                        this.dgSocket = null; // Immediate nullify
+                    }
                     if (this.wakeLock) this.wakeLock.release();
 
                     this.mediaRecorder = null;
