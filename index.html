@@ -1470,11 +1470,11 @@
                     </div>
                     <p class="text-sm font-semibold text-gray-800 leading-snug">${text}</p>
                     <p class="text-xs text-gray-400 italic mt-1 truncate">${original}</p>
-                `;
+                    `;
                     list.prepend(card);
 
                     const count = document.getElementById('question-count');
-                    count.innerText = parseInt(count.innerText) + 1;
+                    count.innerText = parseInt(count.innerText || '0') + 1;
                 }
 
                 async toggleMic() {
