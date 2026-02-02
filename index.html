@@ -1460,185 +1460,183 @@
                     // Speak Requests handled by SpeakManager (which should also be cleaned up ideally, but it manages its own state via init)
                 }
 
-            }
-
-            renderQuestion(text, original, sender) {
-                const list = document.getElementById('teacher-questions');
-                const card = document.createElement('div');
-                card.className = "bg-white border border-blue-100 p-3 rounded-xl shadow-sm animate-slide-up cursor-pointer hover:border-blue-300 transition-colors";
-                card.innerHTML = `
+                renderQuestion(text, original, sender) {
+                    const list = document.getElementById('teacher-questions');
+                    const card = document.createElement('div');
+                    card.className = "bg-white border border-blue-100 p-3 rounded-xl shadow-sm animate-slide-up cursor-pointer hover:border-blue-300 transition-colors";
+                    card.innerHTML = `
                     <div class="flex justify-between items-start mb-1">
                         <span class="text-[10px] font-bold bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded uppercase">${sender}</span>
                     </div>
                     <p class="text-sm font-semibold text-gray-800 leading-snug">${text}</p>
                     <p class="text-xs text-gray-400 italic mt-1 truncate">${original}</p>
                 `;
-                list.prepend(card);
+                    list.prepend(card);
 
-                const count = document.getElementById('question-count');
-                count.innerText = parseInt(count.innerText) + 1;
-            }
+                    const count = document.getElementById('question-count');
+                    count.innerText = parseInt(count.innerText) + 1;
+                }
 
                 async toggleMic() {
-                if (this.state.isMicActive) {
-                    // STOP
-                    this.stopDeepgram();
-                    this.state.isMicActive = false;
-                    this.updateMicUI(false);
-                } else {
-                    // START
-                    try {
-                        await this.startDeepgram();
-                        this.state.isMicActive = true;
-                        this.updateMicUI(true);
-                        this.showToast("Broadcasting Live", "success");
-                    } catch (e) {
-                        console.error("Mic Error", e);
-                        this.showToast("Microphone Error: " + e.message, "error");
+                    if (this.state.isMicActive) {
+                        // STOP
+                        this.stopDeepgram();
                         this.state.isMicActive = false;
                         this.updateMicUI(false);
+                    } else {
+                        // START
+                        try {
+                            await this.startDeepgram();
+                            this.state.isMicActive = true;
+                            this.updateMicUI(true);
+                            this.showToast("Broadcasting Live", "success");
+                        } catch (e) {
+                            console.error("Mic Error", e);
+                            this.showToast("Microphone Error: " + e.message, "error");
+                            this.state.isMicActive = false;
+                            this.updateMicUI(false);
+                        }
                     }
                 }
-            }
 
                 async startDeepgram() {
-                const micConstraints = {
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false
-                    }
-                };
-                const stream = await navigator.mediaDevices.getUserMedia(micConstraints);
-
-                // Wake Lock
-                if ('wakeLock' in navigator) {
-                    try { this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { }
-                }
-
-                this.speakManager.init();
-                this.dgClient = createClient(CREDENTIALS.DEEPGRAM);
-                this.dgSocket = this.dgClient.listen.live({
-                    model: "nova-3",
-                    language: this.state.lang.split('-')[0], // Handle en-US etc
-                    smart_format: true,
-                    interim_results: true,
-                    endpointing: 300, // Balanced for continuous speech
-                    utterance_end_ms: 1000
-                });
-
-                this.dgSocket.on(LiveTranscriptionEvents.Open, () => {
-                    this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-                    this.mediaRecorder.ondataavailable = (e) => {
-                        if (e.data.size > 0 && this.dgSocket.getReadyState() === 1) {
-                            this.dgSocket.send(e.data);
+                    const micConstraints = {
+                        audio: {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false
                         }
                     };
-                    this.mediaRecorder.start(250); // Small chunks for low latency
-                });
+                    const stream = await navigator.mediaDevices.getUserMedia(micConstraints);
 
-                this.dgSocket.on(LiveTranscriptionEvents.Transcript, (data) => {
-                    const transcript = data.channel.alternatives[0].transcript;
-                    if (transcript && data.is_final) {
-                        this.broadcastMessage(transcript);
+                    // Wake Lock
+                    if ('wakeLock' in navigator) {
+                        try { this.wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { }
                     }
 
-                    // Live UI Update
-                    const ui = document.getElementById('teacher-transcript');
-                    if (transcript) ui.innerText = transcript;
-                });
-            }
+                    this.speakManager.init();
+                    this.dgClient = createClient(CREDENTIALS.DEEPGRAM);
+                    this.dgSocket = this.dgClient.listen.live({
+                        model: "nova-3",
+                        language: this.state.lang.split('-')[0], // Handle en-US etc
+                        smart_format: true,
+                        interim_results: true,
+                        endpointing: 300, // Balanced for continuous speech
+                        utterance_end_ms: 1000
+                    });
 
-            stopDeepgram() {
-                if (this.mediaRecorder) this.mediaRecorder.stop();
-                if (this.dgSocket) this.dgSocket.finish();
-                if (this.wakeLock) this.wakeLock.release();
+                    this.dgSocket.on(LiveTranscriptionEvents.Open, () => {
+                        this.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                        this.mediaRecorder.ondataavailable = (e) => {
+                            if (e.data.size > 0 && this.dgSocket.getReadyState() === 1) {
+                                this.dgSocket.send(e.data);
+                            }
+                        };
+                        this.mediaRecorder.start(250); // Small chunks for low latency
+                    });
 
-                this.mediaRecorder = null;
-                this.dgSocket = null;
-            }
+                    this.dgSocket.on(LiveTranscriptionEvents.Transcript, (data) => {
+                        const transcript = data.channel.alternatives[0].transcript;
+                        if (transcript && data.is_final) {
+                            this.broadcastMessage(transcript);
+                        }
 
-            updateMicUI(active) {
-                const btn = document.getElementById('mic-btn');
-                const bars = document.querySelectorAll('#mic-status div');
-
-                if (active) {
-                    btn.classList.add('bg-red-500', 'text-white', 'mic-active-ring');
-                    btn.classList.remove('bg-gray-100', 'text-gray-600');
-                    btn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
-                    bars.forEach(b => b.classList.add('bg-red-400'));
-                } else {
-                    btn.classList.remove('bg-red-500', 'text-white', 'mic-active-ring');
-                    btn.classList.add('bg-gray-100', 'text-gray-600');
-                    btn.innerHTML = '<i class="fa-solid fa-microphone-slash text-sm"></i>';
-                    bars.forEach(b => b.classList.remove('bg-red-400'));
+                        // Live UI Update
+                        const ui = document.getElementById('teacher-transcript');
+                        if (transcript) ui.innerText = transcript;
+                    });
                 }
-            }
 
-            broadcastMessage(text) {
-                push(ref(this.db, `chats/${this.state.room}/messages`), {
-                    text: text,
-                    lang: this.state.lang,
-                    senderName: this.state.name,
-                    senderId: this.state.name, // Simple ID for now
-                    gender: this.state.gender,
-                    timestamp: Date.now()
-                });
-            }
+                stopDeepgram() {
+                    if (this.mediaRecorder) this.mediaRecorder.stop();
+                    if (this.dgSocket) this.dgSocket.finish();
+                    if (this.wakeLock) this.wakeLock.release();
 
-            // --- UTILS ---
+                    this.mediaRecorder = null;
+                    this.dgSocket = null;
+                }
+
+                updateMicUI(active) {
+                    const btn = document.getElementById('mic-btn');
+                    const bars = document.querySelectorAll('#mic-status div');
+
+                    if (active) {
+                        btn.classList.add('bg-red-500', 'text-white', 'mic-active-ring');
+                        btn.classList.remove('bg-gray-100', 'text-gray-600');
+                        btn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+                        bars.forEach(b => b.classList.add('bg-red-400'));
+                    } else {
+                        btn.classList.remove('bg-red-500', 'text-white', 'mic-active-ring');
+                        btn.classList.add('bg-gray-100', 'text-gray-600');
+                        btn.innerHTML = '<i class="fa-solid fa-microphone-slash text-sm"></i>';
+                        bars.forEach(b => b.classList.remove('bg-red-400'));
+                    }
+                }
+
+                broadcastMessage(text) {
+                    push(ref(this.db, `chats/${this.state.room}/messages`), {
+                        text: text,
+                        lang: this.state.lang,
+                        senderName: this.state.name,
+                        senderId: this.state.name, // Simple ID for now
+                        gender: this.state.gender,
+                        timestamp: Date.now()
+                    });
+                }
+
+                // --- UTILS ---
 
 
-            sendQuestion() {
-                const val = document.getElementById('q-input').value.trim();
-                if (!val) return;
+                sendQuestion() {
+                    const val = document.getElementById('q-input').value.trim();
+                    if (!val) return;
 
-                push(ref(this.db, `chats/${this.state.room}/questions`), {
-                    text: val,
-                    lang: this.state.lang,
-                    senderName: this.state.name,
-                    timestamp: Date.now()
-                });
+                    push(ref(this.db, `chats/${this.state.room}/questions`), {
+                        text: val,
+                        lang: this.state.lang,
+                        senderName: this.state.name,
+                        timestamp: Date.now()
+                    });
 
-                document.getElementById('q-input').value = '';
-                this.toggleModal('question');
-                this.showToast("Question Sent", "success");
-            }
+                    document.getElementById('q-input').value = '';
+                    this.toggleModal('question');
+                    this.showToast("Question Sent", "success");
+                }
 
-            sendReaction(emoji) {
-                this.showToast(`Sent ${emoji}`, "success");
-                const float = document.createElement('div');
-                float.innerText = emoji;
-                float.className = 'fixed bottom-20 left-1/2 text-4xl pointer-events-none animate-bounce z-50';
-                float.style.transition = 'all 1s ease-out';
-                document.body.appendChild(float);
-                setTimeout(() => {
-                    float.style.transform = 'translateY(-200px) scale(0)';
-                    float.style.opacity = '0';
-                    setTimeout(() => float.remove(), 1000);
-                }, 50);
-            }
+                sendReaction(emoji) {
+                    this.showToast(`Sent ${emoji}`, "success");
+                    const float = document.createElement('div');
+                    float.innerText = emoji;
+                    float.className = 'fixed bottom-20 left-1/2 text-4xl pointer-events-none animate-bounce z-50';
+                    float.style.transition = 'all 1s ease-out';
+                    document.body.appendChild(float);
+                    setTimeout(() => {
+                        float.style.transform = 'translateY(-200px) scale(0)';
+                        float.style.opacity = '0';
+                        setTimeout(() => float.remove(), 1000);
+                    }, 50);
+                }
 
                 async translateText(text, source, target) {
-                if (source === target) return text;
-                try {
-                    // For regional codes, use base language code for translation
-                    const sourceBase = source.split('-')[0];
-                    const targetBase = target.split('-')[0];
+                    if (source === target) return text;
+                    try {
+                        // For regional codes, use base language code for translation
+                        const sourceBase = source.split('-')[0];
+                        const targetBase = target.split('-')[0];
 
-                    const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceBase}&tl=${targetBase}&dt=t&q=${encodeURIComponent(text)}`);
-                    const json = await res.json();
-                    return json[0][0][0];
-                } catch (e) {
-                    console.warn("Translation error:", e);
-                    return text;
+                        const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceBase}&tl=${targetBase}&dt=t&q=${encodeURIComponent(text)}`);
+                        const json = await res.json();
+                        return json[0][0][0];
+                    } catch (e) {
+                        console.warn("Translation error:", e);
+                        return text;
+                    }
                 }
-            }
 
-            copyCode() {
-                navigator.clipboard.writeText(this.state.room);
-                this.showToast("Copied to clipboard", "success");
-            }
+                copyCode() {
+                    navigator.clipboard.writeText(this.state.room);
+                    this.showToast("Copied to clipboard", "success");
+                }
             }
 
             document.addEventListener('DOMContentLoaded', () => new SuccesApp());
