@@ -1427,9 +1427,9 @@
                 async startDeepgram() {
                     const micConstraints = {
                         audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false
                         }
                     };
                     const stream = await navigator.mediaDevices.getUserMedia(micConstraints);
@@ -1446,7 +1446,7 @@
                         language: this.state.lang.split('-')[0], // Handle en-US etc
                         smart_format: true,
                         interim_results: true,
-                        endpointing: 250, // Ultra-fast endpointing for low latency
+                        endpointing: 300, // Balanced for continuous speech
                         utterance_end_ms: 1000
                     });
 
